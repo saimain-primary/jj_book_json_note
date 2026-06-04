@@ -33,6 +33,9 @@ declare global {
 export const rooms: Map<string, CollabRoom> =
   globalThis.__collabRooms ?? (globalThis.__collabRooms = new Map());
 
+// Debug room lifecycle on server
+const log = (msg: string) => console.log(`[Collab] ${msg}`);
+
 const ADJECTIVES = ['swift', 'brave', 'calm', 'wise', 'bold', 'keen', 'dark', 'fleet', 'sharp', 'crisp'];
 const ANIMALS = ['fox', 'hawk', 'wolf', 'owl', 'bear', 'lynx', 'raven', 'deer', 'cat', 'elk'];
 const COLORS = ['#f97316', '#a78bfa'];

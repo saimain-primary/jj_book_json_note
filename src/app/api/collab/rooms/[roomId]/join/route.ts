@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { rooms, assignName, generateId } from '@/lib/collab-store';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ roomId: string }> }
@@ -9,8 +12,14 @@ export async function POST(
   const { passcode } = await req.json();
 
   const room = rooms.get(roomId);
-  if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 });
-  if (room.passcode !== passcode) return NextResponse.json({ error: 'Wrong passcode' }, { status: 403 });
+  if (!room) {
+    console.error(`[Collab] Room not found for join: ${roomId}`);
+    return NextResponse.json({ error: 'Room not found' }, { status: 404 });
+  }
+  if (room.passcode !== passcode) {
+    console.error(`[Collab] Wrong passcode for room: ${roomId}`);
+    return NextResponse.json({ error: 'Wrong passcode' }, { status: 403 });
+  }
 
   // Max 2 people (owner + 1 collaborator)
   const total = room.clients.size + room.sessionTokens.size;

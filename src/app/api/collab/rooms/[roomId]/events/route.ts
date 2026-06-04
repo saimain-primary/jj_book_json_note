@@ -13,20 +13,29 @@ export async function GET(
   const token = url.searchParams.get('token') ?? '';
 
   const room = rooms.get(roomId);
-  if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 });
+  if (!room) {
+    console.error(`[Collab] Room not found for events: ${roomId}`);
+    return NextResponse.json({ error: 'Room not found' }, { status: 404 });
+  }
 
   const clientInfo = room.sessionTokens.get(token);
-  if (!clientInfo) return NextResponse.json({ error: 'Invalid or expired token' }, { status: 403 });
+  if (!clientInfo) {
+    console.error(`[Collab] Token expired or invalid for room ${roomId}: ${token}`);
+    return NextResponse.json({ error: 'Invalid or expired token' }, { status: 403 });
+  }
 
   room.sessionTokens.delete(token);
   const { clientId, name, color } = clientInfo;
+  console.log(`[Collab] Client ${name} (${clientId}) connecting to room ${roomId}`);
 
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     start(controller) {
       const send = (event: CollabEvent) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        } catch { /* stream likely closed */ }
       };
 
       room.clients.set(clientId, { clientId, name, color, broadcast: send });
@@ -37,7 +46,7 @@ export async function GET(
         color: c.color,
       }));
 
-      // Send full state: clients + all known file contents + all known notes
+      // Send full state
       send({
         type: 'state_sync',
         clients: currentClients,
@@ -48,20 +57,29 @@ export async function GET(
       broadcastToRoom(room, { type: 'user_join', clientId, name, color }, clientId);
 
       const keepAlive = setInterval(() => {
-        try { controller.enqueue(encoder.encode(': keepalive\n\n')); }
-        catch { clearInterval(keepAlive); }
+        try { 
+          controller.enqueue(encoder.encode(': keepalive\n\n')); 
+        } catch { 
+          clearInterval(keepAlive); 
+        }
       }, 20_000);
 
       req.signal.addEventListener('abort', () => {
+        console.log(`[Collab] Client ${name} (${clientId}) disconnected from room ${roomId}`);
         clearInterval(keepAlive);
         room.clients.delete(clientId);
         broadcastToRoom(room, { type: 'user_leave', clientId });
         try { controller.close(); } catch { /* already closed */ }
 
         if (room.clients.size === 0) {
+          console.log(`[Collab] Room ${roomId} is empty, scheduling cleanup...`);
           setTimeout(() => {
-            if (rooms.get(roomId)?.clients.size === 0) rooms.delete(roomId);
-          }, 120_000);
+            const currentRoom = rooms.get(roomId);
+            if (currentRoom && currentRoom.clients.size === 0) {
+              console.log(`[Collab] Cleaning up room ${roomId}`);
+              rooms.delete(roomId);
+            }
+          }, 300_000); // 5 minutes grace period
         }
       });
     },
