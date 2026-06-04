@@ -13,6 +13,7 @@ export async function POST(req: Request) {
     clients: new Map(),
     sessionTokens: new Map(),
     fileContents: new Map(),
+    fileNotes: new Map(),
   });
   return NextResponse.json({ roomId });
 }

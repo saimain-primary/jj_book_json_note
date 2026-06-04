@@ -8,6 +8,7 @@ export type FileNode = {
   isReadonly?: boolean;
   children?: FileNode[];
   status?: string; // Added for upcoming status badge feature
+  size?: number;
 };
 
 export type ContextMenuState = {

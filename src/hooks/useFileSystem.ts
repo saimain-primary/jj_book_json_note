@@ -103,7 +103,9 @@ export function useFileSystem() {
             const calc = (n: FileNode) => {
               if (n.type === 'file') {
                 count++;
-                size += (n.content?.length || 0);
+                const fileSize = n.content?.length || 0;
+                size += fileSize;
+                n.size = fileSize; // Ensure individual node size is set
                 if (n.content !== undefined) contents[n.id] = n.content;
               }
               if (n.children) n.children.forEach(calc);
