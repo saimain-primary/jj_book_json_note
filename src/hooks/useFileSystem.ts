@@ -181,8 +181,17 @@ export function useFileSystem() {
   }, [isReadOnlyMode]);
 
   const saveFile = useCallback(async (id: string, content: string, note?: string) => {
-    if (isReadOnlyMode) return;
+    if (isReadOnlyMode || !id) return;
+    
+    // Safety: Don't save if we don't actually have content yet 
+    // (unless it's explicitly cleared by the user, but usually we want to avoid accidental wipes)
+    if (content === "" && !fileContents[id]) {
+       console.warn('[FS] Skipping save of empty content as file might still be loading');
+       return;
+    }
+
     try {
+      console.log(`[FS] Saving ${id}...`);
       const res = await fetch('/api/fs', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -191,11 +200,13 @@ export function useFileSystem() {
       if (!res.ok) {
         const err = await res.json();
         console.error('Save failed:', err.details || err.error);
+      } else {
+        console.log(`[FS] Saved ${id} successfully`);
       }
     } catch {
       console.error('Failed to save file');
     }
-  }, [isReadOnlyMode]);
+  }, [isReadOnlyMode, fileContents]);
 
   const setNodeStatus = useCallback(async (id: string, status: string) => {
     if (isReadOnlyMode) return;

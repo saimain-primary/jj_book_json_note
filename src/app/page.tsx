@@ -353,9 +353,23 @@ function Workspace() {
 
   const handleSave = useCallback(async () => {
     if (isReadOnlyMode || activeFileNode?.isReadonly || !activeFileId) return;
+    
+    // Safety check: don't save if content is empty unless user explicitly cleared it
+    if (!activeContent && !fileContents[activeFileId]) {
+      console.warn('[Workspace] Aborting save: Content is empty and not yet loaded in state.');
+      return;
+    }
+
     setIsSaving(true);
     let contentToSave = activeContent;
-    try { contentToSave = JSON.stringify(JSON.parse(activeContent)); } catch { /* ignore */ }
+    try { 
+      // Only minify if it's valid JSON, otherwise save as is
+      const parsed = JSON.parse(activeContent);
+      contentToSave = JSON.stringify(parsed); 
+    } catch { /* ignore and save raw */ }
+
+    console.log(`[Workspace] Saving file: ${activeFileId}`, { contentLength: contentToSave.length, hasNote: !!activeNote });
+    
     await saveFile(activeFileId, contentToSave, activeNote);
     
     try {
