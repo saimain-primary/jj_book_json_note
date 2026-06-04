@@ -10,7 +10,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'folderId and passcode required' }, { status: 400 });
   }
   const roomId = generateId(6);
-  console.log(`[Collab] Creating room: ${roomId} for folder: ${folderId}`);
+  console.log(`[Collab][PID:${process.pid}] Creating room: ${roomId} for folder: ${folderId}`);
   rooms.set(roomId, {
     passcode,
     folderId,

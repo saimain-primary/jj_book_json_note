@@ -13,13 +13,15 @@ export async function POST(
 
   const room = rooms.get(roomId);
   if (!room) {
-    console.error(`[Collab] Room not found for join: ${roomId}`);
+    console.error(`[Collab][PID:${process.pid}] Room not found for join: ${roomId}`);
     return NextResponse.json({ error: 'Room not found' }, { status: 404 });
   }
   if (room.passcode !== passcode) {
-    console.error(`[Collab] Wrong passcode for room: ${roomId}`);
+    console.error(`[Collab][PID:${process.pid}] Wrong passcode for room: ${roomId}`);
     return NextResponse.json({ error: 'Wrong passcode' }, { status: 403 });
   }
+  
+  console.log(`[Collab][PID:${process.pid}] Join success for room: ${roomId}`);
 
   // Max 2 people (owner + 1 collaborator)
   const total = room.clients.size + room.sessionTokens.size;
