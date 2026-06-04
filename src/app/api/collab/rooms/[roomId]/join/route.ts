@@ -1,0 +1,29 @@
+import { NextResponse } from 'next/server';
+import { rooms, assignName, generateId } from '@/lib/collab-store';
+
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ roomId: string }> }
+) {
+  const { roomId } = await params;
+  const { passcode } = await req.json();
+
+  const room = rooms.get(roomId);
+  if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 });
+  if (room.passcode !== passcode) return NextResponse.json({ error: 'Wrong passcode' }, { status: 403 });
+
+  // Max 2 people (owner + 1 collaborator)
+  const total = room.clients.size + room.sessionTokens.size;
+  if (total >= 2) {
+    return NextResponse.json({ error: 'Room is full (max 2 people)' }, { status: 403 });
+  }
+
+  const clientId = generateId(8);
+  const { name, color } = assignName(room);
+  const token = generateId(20);
+
+  room.sessionTokens.set(token, { clientId, name, color });
+  setTimeout(() => room.sessionTokens.delete(token), 60_000);
+
+  return NextResponse.json({ token, clientId, name, color });
+}

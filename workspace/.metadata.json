@@ -1,0 +1,14 @@
+{
+  "One Click/HomeDataAPI.json": {
+    "status": "completed"
+  },
+  "One Click/HomeDataAPI_copy.json": {
+    "status": "dev-ready"
+  },
+  "One Click/test.json": {
+    "status": "staging-ready"
+  },
+  "One Click/tet/HomeDataAPI_copy.json": {
+    "status": "dev-ready"
+  }
+}
