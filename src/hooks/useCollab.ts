@@ -35,7 +35,9 @@ type UseCollabOptions = {
 export function useCollab({ session, onContentChange, onNoteChange }: UseCollabOptions) {
   const [clients, setClients] = useState<RemoteClient[]>([]);
   const [cursors, setCursors] = useState<Map<string, RemoteCursor>>(new Map());
+  const [isSubscribed, setIsSubscribed] = useState(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const isSubscribedRef = useRef(false);
 
   const lastContentSentRef = useRef<Record<string, number>>({});
   const lastNoteSentRef = useRef<Record<string, number>>({});
@@ -67,6 +69,7 @@ export function useCollab({ session, onContentChange, onNoteChange }: UseCollabO
       })
       .on('broadcast', { event: 'cursor_move' }, ({ payload }) => {
         if (payload.clientId !== clientId) {
+          console.log(`[Collab] Cursor move received from ${payload.name} (${payload.clientId})`);
           setCursors(prev => {
             const m = new Map(prev);
             m.set(payload.clientId, {
@@ -93,7 +96,12 @@ export function useCollab({ session, onContentChange, onNoteChange }: UseCollabO
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           await channel.track({ clientId, name, color });
+          setIsSubscribed(true);
+          isSubscribedRef.current = true;
           console.log('[Collab] Connected to room:', roomId);
+        } else {
+          setIsSubscribed(false);
+          isSubscribedRef.current = false;
         }
       });
 
@@ -102,11 +110,13 @@ export function useCollab({ session, onContentChange, onNoteChange }: UseCollabO
     return () => {
       channel.unsubscribe();
       channelRef.current = null;
+      setIsSubscribed(false);
+      isSubscribedRef.current = false;
     };
   }, [session, onContentChange, onNoteChange]);
 
   const broadcastRaw = useCallback(async (event: string, payload: Record<string, unknown>) => {
-    if (!channelRef.current || !session) return;
+    if (!channelRef.current || !session || !isSubscribedRef.current) return;
     channelRef.current.send({
       type: 'broadcast',
       event,
@@ -114,15 +124,42 @@ export function useCollab({ session, onContentChange, onNoteChange }: UseCollabO
     });
   }, [session]);
 
+  const lastCursorSentRef = useRef<number>(0);
+  const cursorPendingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const sendCursorMove = useCallback((fileId: string, lineNumber: number, column: number) => {
-    if (!session) return;
-    broadcastRaw('cursor_move', { 
-      fileId, 
-      lineNumber, 
-      column, 
-      name: session.name, 
-      color: session.color 
-    });
+    if (!session || !isSubscribedRef.current) return;
+    
+    const now = Date.now();
+    const INTERVAL = 100; // 10 updates per second is enough for smooth-enough cursors
+    
+    if (cursorPendingRef.current) {
+      clearTimeout(cursorPendingRef.current);
+      cursorPendingRef.current = null;
+    }
+
+    if (now - lastCursorSentRef.current >= INTERVAL) {
+      lastCursorSentRef.current = now;
+      broadcastRaw('cursor_move', { 
+        fileId, 
+        lineNumber, 
+        column, 
+        name: session.name, 
+        color: session.color 
+      });
+    } else {
+      cursorPendingRef.current = setTimeout(() => {
+        lastCursorSentRef.current = Date.now();
+        broadcastRaw('cursor_move', { 
+          fileId, 
+          lineNumber, 
+          column, 
+          name: session.name, 
+          color: session.color 
+        });
+        cursorPendingRef.current = null;
+      }, INTERVAL - (now - lastCursorSentRef.current));
+    }
   }, [broadcastRaw, session]);
 
   const sendThrottled = useCallback((fileId: string, content: string, type: 'content_change' | 'note_change') => {
@@ -170,5 +207,5 @@ export function useCollab({ session, onContentChange, onNoteChange }: UseCollabO
     });
   }, [broadcastRaw]);
 
-  return { clients, cursors, sendCursorMove, sendContentChange, sendNoteChange, pushFileContents };
+  return { clients, cursors, isSubscribed, sendCursorMove, sendContentChange, sendNoteChange, pushFileContents };
 }

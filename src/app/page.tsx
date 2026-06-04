@@ -223,12 +223,12 @@ function Workspace() {
   useEffect(() => { fileNotesRef.current = fileNotes; }, [fileNotes]);
 
   useEffect(() => {
-    if (!collabSession) return;
+    if (!collabSession || !collab.isSubscribed) return;
     const t = setTimeout(() => {
       pushFileContentsRef.current(fileContentsRef.current, fileNotesRef.current);
     }, 500);
     return () => clearTimeout(t);
-  }, [collabSession]);
+  }, [collabSession, collab.isSubscribed]);
 
   const activeFileNode = useMemo(() => findNodeById(files, activeFileId), [files, activeFileId]);
   const breadcrumbs = useMemo(() => getPathToNode(files, activeFileId), [files, activeFileId]);
@@ -328,27 +328,59 @@ function Workspace() {
   useEffect(() => {
     if (!editorRef.current || !monacoRef.current) return;
     const editor = editorRef.current;
-    cursorWidgetsRef.current.forEach(w => { try { editor.removeContentWidget(w); } catch { /* ok */ } });
+    
+    // Clear existing widgets
+    cursorWidgetsRef.current.forEach(w => { 
+      try { editor.removeContentWidget(w); } catch { /* ignore */ } 
+    });
     cursorWidgetsRef.current = [];
+
+    if (collab.cursors.size > 0) {
+      console.log(`[Collab] Rendering ${collab.cursors.size} cursors`);
+    }
 
     for (const [clientId, cursor] of collab.cursors) {
       if (cursor.fileId !== activeFileId) continue;
+      
       const { name, color, lineNumber, column } = cursor;
       const domNode = document.createElement('div');
-      domNode.style.cssText = 'pointer-events:none;position:absolute;top:0;left:-1px;';
+      domNode.className = 'remote-cursor-widget';
+      domNode.style.pointerEvents = 'none';
+      domNode.style.zIndex = '100';
+      
       domNode.innerHTML = `
-        <div style="position:relative;top:0;left:0;display:flex;flex-direction:column;align-items:flex-start;pointer-events:none;">
-          <span style="position:absolute;bottom:100%;left:0;background:${color};color:#fff;font-size:10px;font-family:'JetBrains Mono',monospace;padding:1px 5px;border-radius:3px 3px 3px 0;white-space:nowrap;line-height:1.5;z-index:10;">${name}</span>
-          <div style="width:2px;height:18px;background:${color};"></div>
+        <div style="position:relative;display:flex;flex-direction:column;align-items:flex-start;pointer-events:none;">
+          <span style="position:absolute;bottom:100%;left:0;background:${color};color:#fff;font-size:10px;font-family:'JetBrains Mono',monospace;padding:2px 6px;border-radius:4px 4px 4px 0;white-space:nowrap;line-height:1.2;z-index:101;box-shadow:0 2px 4px rgba(0,0,0,0.3);font-weight:bold;">${name}</span>
+          <div style="width:2px;height:20px;background:${color};box-shadow:0 0 2px rgba(0,0,0,0.5);"></div>
         </div>`;
+
       const widget = {
         getId: () => `rc-${clientId}`,
         getDomNode: () => domNode,
-        getPosition: () => ({ position: { lineNumber, column }, preference: [0] }),
+        getPosition: () => ({ 
+          position: { lineNumber, column }, 
+          preference: [monacoRef.current.editor.ContentWidgetPositionPreference.EXACT] 
+        }),
       };
-      editor.addContentWidget(widget);
-      cursorWidgetsRef.current.push(widget);
+
+      try {
+        editor.addContentWidget(widget);
+        cursorWidgetsRef.current.push(widget);
+      } catch (err) {
+        console.error('[Collab] Failed to add cursor widget:', err);
+      }
     }
+
+    return () => {
+      // Cleanup on unmount or dependency change
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      const currentEditor = editorRef.current;
+      if (currentEditor) {
+        cursorWidgetsRef.current.forEach(w => {
+          try { currentEditor.removeContentWidget(w); } catch { /* ignore */ }
+        });
+      }
+    };
   }, [collab.cursors, activeFileId]);
 
   const handleSave = useCallback(async () => {
