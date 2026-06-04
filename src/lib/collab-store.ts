@@ -43,29 +43,45 @@ const roomsMemory: Map<string, CollabRoom> = globalStore[ROOMS_KEY];
 
 // Helper to ensure a room exists in memory
 function ensureRoomInMemory(roomId: string): CollabRoom | null {
-  if (roomsMemory.has(roomId)) return roomsMemory.get(roomId)!;
+  let room = roomsMemory.get(roomId);
 
   try {
     if (fs.existsSync(ROOMS_FILE)) {
       const allRooms = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf-8'));
-      if (allRooms[roomId]) {
-        const data = allRooms[roomId];
-        const newRoom: CollabRoom = {
-          passcode: data.passcode,
-          folderId: data.folderId,
-          clients: new Map(),
-          sessionTokens: new Map(Object.entries(data.sessionTokens || {})),
-          fileContents: new Map(Object.entries(data.fileContents || {})),
-          fileNotes: new Map(Object.entries(data.fileNotes || {})),
-        };
-        roomsMemory.set(roomId, newRoom);
-        return newRoom;
+      const data = allRooms[roomId];
+      
+      if (data) {
+        if (!room) {
+          room = {
+            passcode: data.passcode,
+            folderId: data.folderId,
+            clients: new Map(),
+            sessionTokens: new Map(Object.entries(data.sessionTokens || {})),
+            fileContents: new Map(Object.entries(data.fileContents || {})),
+            fileNotes: new Map(Object.entries(data.fileNotes || {})),
+          };
+          roomsMemory.set(roomId, room);
+        } else {
+          // Sync data from file to existing memory room
+          room.passcode = data.passcode;
+          room.folderId = data.folderId;
+          room.sessionTokens = new Map(Object.entries(data.sessionTokens || {}));
+          // Only sync contents if they are newer/different (basic merge)
+          Object.entries(data.fileContents || {}).forEach(([fid, content]) => {
+            room!.fileContents.set(fid, content as string);
+          });
+          Object.entries(data.fileNotes || {}).forEach(([fid, note]) => {
+            room!.fileNotes.set(fid, note as string);
+          });
+        }
+        return room;
       }
     }
   } catch (e) {
-    console.error('[Collab] Failed to load room from disk', e);
+    console.error('[Collab] Failed to load/sync room from disk', e);
   }
-  return null;
+  
+  return room || null;
 }
 
 // Global Rooms Proxy
