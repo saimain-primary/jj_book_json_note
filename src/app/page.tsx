@@ -37,7 +37,7 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { SnippetPalette } from "@/components/dialogs/SnippetPalette";
 import { ShareLiveDialog } from "@/components/collab/ShareLiveDialog";
 import { JoinCollabDialog } from "@/components/collab/JoinCollabDialog";
-import { useCollab, CollabSession } from "@/hooks/useCollab";
+import { useCollab } from "@/hooks/useCollab";
 import { useFileSystem } from "@/hooks/useFileSystem";
 import { SearchPanel } from "@/components/SearchPanel";
 import { flattenJson, unflattenJson } from "@/lib/json-utils";
@@ -115,7 +115,7 @@ function Workspace() {
     ? new URLSearchParams(window.location.search).get("collab")
     : null;
 
-  const [collabSession, setCollabSession] = useState<CollabSession | null>(null);
+  const [collabSession, setCollabSession] = useState<any | null>(null);
   const [showJoinDialog, setShowJoinDialog] = useState(() => !!collabRoomId && !collabSession);
   const [isShareLiveVisible, setIsShareLiveVisible] = useState(false);
   const [shareLiveFolderId, setShareLiveFolderId] = useState("");

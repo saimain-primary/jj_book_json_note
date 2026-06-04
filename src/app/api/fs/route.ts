@@ -62,7 +62,7 @@ export async function POST(req: Request) {
 
   if (error) {
     console.error('[Supabase] Insert error:', error);
-    return NextResponse.json({ error: 'Creation failed' }, { status: 500 });
+    return NextResponse.json({ error: 'Creation failed', details: error.message }, { status: 500 });
   }
 
   return NextResponse.json({ success: true });
