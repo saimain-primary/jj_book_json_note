@@ -1,3 +1,7 @@
+import fs from 'fs';
+import path from 'path';
+
+// ... (types remain the same)
 export type CollabEvent =
   | { type: 'state_sync'; clients: ClientInfo[]; fileContents: Record<string, string>; fileNotes: Record<string, string> }
   | { type: 'user_join'; clientId: string; name: string; color: string }
@@ -26,15 +30,82 @@ export type CollabRoom = {
   fileNotes: Map<string, string>;
 };
 
-declare global {
-  var __collabRooms: Map<string, CollabRoom> | undefined;
+const ROOMS_FILE = path.join(process.cwd(), 'workspace', '.active_rooms.json');
+
+// Memory-only tracking for live connections
+const ROOMS_KEY = Symbol.for('jjbook.collab.rooms');
+const globalStore = globalThis as unknown as { [ROOMS_KEY]: Map<string, CollabRoom> };
+
+if (!globalStore[ROOMS_KEY]) {
+  globalStore[ROOMS_KEY] = new Map<string, CollabRoom>();
+}
+const roomsMemory: Map<string, CollabRoom> = globalStore[ROOMS_KEY];
+
+// Helper to ensure a room exists in memory
+function ensureRoomInMemory(roomId: string): CollabRoom | null {
+  if (roomsMemory.has(roomId)) return roomsMemory.get(roomId)!;
+
+  try {
+    if (fs.existsSync(ROOMS_FILE)) {
+      const allRooms = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf-8'));
+      if (allRooms[roomId]) {
+        const data = allRooms[roomId];
+        const newRoom: CollabRoom = {
+          ...data,
+          clients: new Map(),
+          sessionTokens: new Map(),
+          fileContents: new Map(Object.entries(data.fileContents || {})),
+          fileNotes: new Map(Object.entries(data.fileNotes || {})),
+        };
+        roomsMemory.set(roomId, newRoom);
+        return newRoom;
+      }
+    }
+  } catch (e) {
+    console.error('[Collab] Failed to load room from disk', e);
+  }
+  return null;
 }
 
-export const rooms: Map<string, CollabRoom> =
-  globalThis.__collabRooms ?? (globalThis.__collabRooms = new Map());
+// Global Rooms Proxy
+export const rooms = {
+  get: (id: string) => ensureRoomInMemory(id),
+  has: (id: string) => ensureRoomInMemory(id) !== null,
+  set: (id: string, room: CollabRoom) => {
+    roomsMemory.set(id, room);
+    persistRoomsToDisk();
+  },
+  delete: (id: string) => {
+    roomsMemory.delete(id);
+    persistRoomsToDisk();
+  },
+  keys: () => {
+    // Note: this only returns keys currently in memory or would need to scan the file
+    // For now, let's make it return current memory keys which is sufficient for most use cases
+    return roomsMemory.keys();
+  },
+  entries: () => {
+    return roomsMemory.entries();
+  },
+  get size() { return roomsMemory.size; }
+};
 
-// Debug room lifecycle on server
-const log = (msg: string) => console.log(`[Collab] ${msg}`);
+function persistRoomsToDisk() {
+  try {
+    const data: Record<string, { passcode: string; folderId: string; fileContents: Record<string, string>; fileNotes: Record<string, string> }> = {};
+    for (const [id, room] of roomsMemory.entries()) {
+      data[id] = {
+        passcode: room.passcode,
+        folderId: room.folderId,
+        fileContents: Object.fromEntries(room.fileContents),
+        fileNotes: Object.fromEntries(room.fileNotes),
+      };
+    }
+    fs.writeFileSync(ROOMS_FILE, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('[Collab] Failed to persist rooms', e);
+  }
+}
 
 const ADJECTIVES = ['swift', 'brave', 'calm', 'wise', 'bold', 'keen', 'dark', 'fleet', 'sharp', 'crisp'];
 const ANIMALS = ['fox', 'hawk', 'wolf', 'owl', 'bear', 'lynx', 'raven', 'deer', 'cat', 'elk'];

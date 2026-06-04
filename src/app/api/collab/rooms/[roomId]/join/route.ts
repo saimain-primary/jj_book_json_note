@@ -11,6 +11,9 @@ export async function POST(
   const { roomId } = await params;
   const { passcode } = await req.json();
 
+  const availableRooms = Array.from(rooms.keys());
+  console.log(`[Collab][PID:${process.pid}] Join attempt for: ${roomId}. Available rooms in this route:`, availableRooms);
+
   const room = rooms.get(roomId);
   if (!room) {
     console.error(`[Collab][PID:${process.pid}] Room not found for join: ${roomId}`);
