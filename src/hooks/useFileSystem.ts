@@ -183,17 +183,14 @@ export function useFileSystem() {
   const saveFile = useCallback(async (id: string, content: string, note?: string) => {
     if (isReadOnlyMode) return;
     try {
-      await fetch('/api/fs', {
+      const res = await fetch('/api/fs', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'content', path: id, content })
+        body: JSON.stringify({ action: 'save_all', path: id, content, note })
       });
-      if (note !== undefined) {
-        await fetch('/api/fs', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'note', path: id, content: note })
-        });
+      if (!res.ok) {
+        const err = await res.json();
+        console.error('Save failed:', err.details || err.error);
       }
     } catch {
       console.error('Failed to save file');

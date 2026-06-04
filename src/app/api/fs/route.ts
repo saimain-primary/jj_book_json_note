@@ -75,8 +75,6 @@ export async function PUT(req: Request) {
     if (body.action === 'rename') {
       const { oldPath, newPath } = body;
       
-      // Note: Supabase doesn't support recursive path updates easily.
-      // For a simple rename of a single file:
       const { error } = await supabase
         .from('nodes')
         .update({ 
@@ -87,12 +85,17 @@ export async function PUT(req: Request) {
 
       if (error) throw error;
 
-    } else if (body.action === 'content') {
-      const { path: id, content } = body;
+    } else if (body.action === 'content' || body.action === 'save_all') {
+      const { path: id, content, note } = body;
+      const updateData: any = {};
+      if (content !== undefined) updateData.content = content;
+      if (note !== undefined) updateData.note = note;
+
       const { error } = await supabase
         .from('nodes')
-        .update({ content })
+        .update(updateData)
         .eq('id', id);
+
       if (error) throw error;
 
     } else if (body.action === 'preset') {
@@ -102,20 +105,12 @@ export async function PUT(req: Request) {
         .update({ preset: content })
         .eq('id', id);
       if (error) throw error;
-
-    } else if (body.action === 'note') {
-      const { path: id, content } = body;
-      const { error } = await supabase
-        .from('nodes')
-        .update({ note: content })
-        .eq('id', id);
-      if (error) throw error;
     }
     
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Supabase] Update error:', error);
-    return NextResponse.json({ error: 'Update failed' }, { status: 500 });
+    return NextResponse.json({ error: 'Update failed', details: error.message }, { status: 500 });
   }
 }
 
@@ -128,7 +123,7 @@ export async function DELETE(req: Request) {
   const { error } = await supabase
     .from('nodes')
     .delete()
-    .or(`id.eq.${id},parent_id.like.${id}/*`); // Recursive delete simulation
+    .or(`id.eq.${id},parent_id.like.${id}/*`);
 
   if (error) {
     console.error('[Supabase] Delete error:', error);
