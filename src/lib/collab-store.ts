@@ -51,9 +51,10 @@ function ensureRoomInMemory(roomId: string): CollabRoom | null {
       if (allRooms[roomId]) {
         const data = allRooms[roomId];
         const newRoom: CollabRoom = {
-          ...data,
+          passcode: data.passcode,
+          folderId: data.folderId,
           clients: new Map(),
-          sessionTokens: new Map(),
+          sessionTokens: new Map(Object.entries(data.sessionTokens || {})),
           fileContents: new Map(Object.entries(data.fileContents || {})),
           fileNotes: new Map(Object.entries(data.fileNotes || {})),
         };
@@ -79,9 +80,8 @@ export const rooms = {
     roomsMemory.delete(id);
     persistRoomsToDisk();
   },
+  save: () => persistRoomsToDisk(), // Allow manual trigger
   keys: () => {
-    // Note: this only returns keys currently in memory or would need to scan the file
-    // For now, let's make it return current memory keys which is sufficient for most use cases
     return roomsMemory.keys();
   },
   entries: () => {
@@ -92,11 +92,12 @@ export const rooms = {
 
 function persistRoomsToDisk() {
   try {
-    const data: Record<string, { passcode: string; folderId: string; fileContents: Record<string, string>; fileNotes: Record<string, string> }> = {};
+    const data: Record<string, { passcode: string; folderId: string; sessionTokens: Record<string, ClientInfo>; fileContents: Record<string, string>; fileNotes: Record<string, string> }> = {};
     for (const [id, room] of roomsMemory.entries()) {
       data[id] = {
         passcode: room.passcode,
         folderId: room.folderId,
+        sessionTokens: Object.fromEntries(room.sessionTokens),
         fileContents: Object.fromEntries(room.fileContents),
         fileNotes: Object.fromEntries(room.fileNotes),
       };

@@ -37,7 +37,12 @@ export async function POST(
   const token = generateId(20);
 
   room.sessionTokens.set(token, { clientId, name, color });
-  setTimeout(() => room.sessionTokens.delete(token), 60_000);
+  rooms.save(); // Sync to disk immediately for multi-process environments
+  
+  setTimeout(() => {
+    room.sessionTokens.delete(token);
+    rooms.save();
+  }, 120_000); // Increased to 2 mins for slow networks
 
   return NextResponse.json({ token, clientId, name, color });
 }

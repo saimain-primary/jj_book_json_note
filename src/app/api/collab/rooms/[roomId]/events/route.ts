@@ -25,6 +25,7 @@ export async function GET(
   }
 
   room.sessionTokens.delete(token);
+  rooms.save();
   const { clientId, name, color } = clientInfo;
   console.log(`[Collab] Client ${name} (${clientId}) connecting to room ${roomId}`);
 
@@ -111,8 +112,10 @@ export async function POST(
   // Persist file contents in room state so new joiners get them
   if (event.type === 'content_change') {
     room.fileContents.set(event.fileId, event.content);
+    rooms.save();
   } else if (event.type === 'note_change') {
     room.fileNotes.set(event.fileId, event.content);
+    rooms.save();
   }
 
   broadcastToRoom(room, event, 'clientId' in event ? event.clientId : undefined);
