@@ -204,29 +204,14 @@ function Workspace() {
     }
   }, [updateFileContentLocal]);
 
-  const handleStateSyncContents = useCallback((remoteContents: Record<string, string>) => {
-    // Basic sync
-    Object.entries(remoteContents).forEach(([id, content]) => {
-      updateFileContentLocal(id, content);
-    });
-  }, [updateFileContentLocal]);
-
   const handleRemoteNoteChange = useCallback((fileId: string, content: string) => {
     updateFileNoteLocal(fileId, content);
-  }, [updateFileNoteLocal]);
-
-  const handleStateSyncNotes = useCallback((remoteNotes: Record<string, string>) => {
-    Object.entries(remoteNotes).forEach(([id, note]) => {
-      updateFileNoteLocal(id, note);
-    });
   }, [updateFileNoteLocal]);
 
   const collab = useCollab({
     session: collabSession,
     onContentChange: handleRemoteContentChange,
     onNoteChange: handleRemoteNoteChange,
-    onStateSyncContents: handleStateSyncContents,
-    onStateSyncNotes: handleStateSyncNotes,
   });
 
   const pushFileContentsRef = useRef(collab.pushFileContents);

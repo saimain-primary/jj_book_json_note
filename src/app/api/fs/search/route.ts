@@ -1,52 +1,44 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs/promises';
-import path from 'path';
+import { supabase } from '@/lib/supabase';
 
-const WORKSPACE_DIR = path.join(process.cwd(), 'workspace');
-
-type SearchResult = {
-  fileId: string;
-  fileName: string;
-  line: number;
-  text: string;
-  matchStart: number;
-};
-
-async function searchFiles(dirPath: string, relativePath: string, query: string, results: SearchResult[]) {
-  if (results.length >= 200) return;
-  let entries;
-  try {
-    entries = await fs.readdir(dirPath, { withFileTypes: true });
-  } catch { return; }
-
-  for (const entry of entries) {
-    if (entry.name.startsWith('.')) continue;
-    const fullPath = path.join(dirPath, entry.name);
-    const relPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) {
-      await searchFiles(fullPath, relPath, query, results);
-    } else if (entry.name.endsWith('.json')) {
-      try {
-        const content = await fs.readFile(fullPath, 'utf-8');
-        const lines = content.split('\n');
-        const lowerQuery = query.toLowerCase();
-        for (let i = 0; i < lines.length && results.length < 200; i++) {
-          const lowerLine = lines[i].toLowerCase();
-          const idx = lowerLine.indexOf(lowerQuery);
-          if (idx !== -1) {
-            results.push({ fileId: relPath, fileName: entry.name, line: i + 1, text: lines[i], matchStart: idx });
-          }
-        }
-      } catch { /* skip unreadable */ }
-    }
-  }
-}
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const query = searchParams.get('q')?.trim();
+  const query = searchParams.get('q');
+
   if (!query || query.length < 2) return NextResponse.json([]);
-  const results: SearchResult[] = [];
-  await searchFiles(WORKSPACE_DIR, '', query, results);
-  return NextResponse.json(results);
+
+  try {
+    const { data: nodes, error } = await supabase
+      .from('nodes')
+      .select('id, name, content')
+      .eq('type', 'file')
+      .ilike('content', `%${query}%`);
+
+    if (error) throw error;
+
+    const results: { fileId: string; fileName: string; line: number; text: string; matchStart: number; matchLength: number }[] = [];
+    nodes?.forEach(node => {
+      const content = node.content || '';
+      const lines = content.split('\n');
+      lines.forEach((line: string, index: number) => {
+        if (line.toLowerCase().includes(query.toLowerCase())) {
+          results.push({
+            fileId: node.id,
+            fileName: node.name,
+            line: index + 1,
+            text: line.trim(),
+            matchStart: line.toLowerCase().indexOf(query.toLowerCase()),
+            matchLength: query.length
+          });
+        }
+      });
+    });
+
+    return NextResponse.json(results.slice(0, 200));
+  } catch (error) {
+    console.error('[Supabase] Search error:', error);
+    return NextResponse.json({ error: 'Search failed' }, { status: 500 });
+  }
 }

@@ -1,23 +1,31 @@
 import { NextResponse } from 'next/server';
-import { rooms, generateId } from '@/lib/collab-store';
+import { supabase } from '@/lib/supabase';
+
+function generateId(length = 6): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
 
 export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
-  const { folderId, passcode } = await req.json();
-  if (!folderId || !passcode) {
-    return NextResponse.json({ error: 'folderId and passcode required' }, { status: 400 });
+  try {
+    const { folderId, passcode } = await req.json();
+    if (!folderId || !passcode) {
+      return NextResponse.json({ error: 'folderId and passcode required' }, { status: 400 });
+    }
+
+    const roomId = generateId(6);
+    const { error } = await supabase
+      .from('collab_rooms')
+      .insert({ id: roomId, passcode, folder_id: folderId });
+
+    if (error) throw error;
+
+    console.log(`[Collab] Created Supabase room: ${roomId}`);
+    return NextResponse.json({ roomId });
+  } catch (error) {
+    console.error('[Collab] Room creation error:', error);
+    return NextResponse.json({ error: 'Failed to create room' }, { status: 500 });
   }
-  const roomId = generateId(6);
-  console.log(`[Collab][PID:${process.pid}] Creating room: ${roomId} for folder: ${folderId}`);
-  rooms.set(roomId, {
-    passcode,
-    folderId,
-    clients: new Map(),
-    sessionTokens: new Map(),
-    fileContents: new Map(),
-    fileNotes: new Map(),
-  });
-  return NextResponse.json({ roomId });
 }

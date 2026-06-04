@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 export type CollabSession = {
   roomId: string;
@@ -28,16 +30,13 @@ type UseCollabOptions = {
   session: CollabSession | null;
   onContentChange: (fileId: string, content: string, fromClientId: string) => void;
   onNoteChange?: (fileId: string, content: string, fromClientId: string) => void;
-  onStateSyncContents: (fileContents: Record<string, string>) => void;
-  onStateSyncNotes?: (fileNotes: Record<string, string>) => void;
 };
 
-export function useCollab({ session, onContentChange, onNoteChange, onStateSyncContents, onStateSyncNotes }: UseCollabOptions) {
+export function useCollab({ session, onContentChange, onNoteChange }: UseCollabOptions) {
   const [clients, setClients] = useState<RemoteClient[]>([]);
   const [cursors, setCursors] = useState<Map<string, RemoteCursor>>(new Map());
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
-  const cursorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Throttle: track last-sent time for content changes
   const lastContentSentRef = useRef<Record<string, number>>({});
   const lastNoteSentRef = useRef<Record<string, number>>({});
   const contentPendingRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -45,93 +44,94 @@ export function useCollab({ session, onContentChange, onNoteChange, onStateSyncC
 
   useEffect(() => {
     if (!session) return;
-    const { roomId, token, clientId } = session;
+    const { roomId, clientId, name, color } = session;
 
-    const es = new EventSource(`/api/collab/rooms/${roomId}/events?token=${token}`);
+    const channel = supabase.channel(`room:${roomId}`, {
+      config: {
+        presence: { key: clientId },
+      },
+    });
 
-    es.onmessage = (e) => {
-      const event = JSON.parse(e.data as string);
-
-      switch (event.type) {
-        case 'state_sync':
-          setClients((event.clients as RemoteClient[]).filter(c => c.clientId !== clientId));
-          if (event.fileContents && Object.keys(event.fileContents).length > 0) {
-            onStateSyncContents(event.fileContents as Record<string, string>);
-          }
-          if (event.fileNotes && onStateSyncNotes && Object.keys(event.fileNotes).length > 0) {
-            onStateSyncNotes(event.fileNotes as Record<string, string>);
-          }
-          break;
-        case 'user_join':
-          if (event.clientId !== clientId) {
-            setClients(prev => [
-              ...prev.filter(c => c.clientId !== event.clientId),
-              { clientId: event.clientId, name: event.name, color: event.color },
-            ]);
-          }
-          break;
-        case 'user_leave':
-          setClients(prev => prev.filter(c => c.clientId !== event.clientId));
-          setCursors(prev => { const m = new Map(prev); m.delete(event.clientId); return m; });
-          break;
-        case 'content_change':
-          if (event.clientId !== clientId) {
-            onContentChange(event.fileId, event.content, event.clientId);
-          }
-          break;
-        case 'note_change':
-          if (event.clientId !== clientId && onNoteChange) {
-            onNoteChange(event.fileId, event.content, event.clientId);
-          }
-          break;
-        case 'cursor_move':
-          if (event.clientId !== clientId) {
-            setCursors(prev => {
-              const m = new Map(prev);
-              m.set(event.clientId, {
-                fileId: event.fileId,
-                lineNumber: event.lineNumber,
-                column: event.column,
-                name: event.name,
-                color: event.color,
-              });
-              return m;
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        const otherClients: RemoteClient[] = [];
+        Object.entries(state).forEach(([key, presences]) => {
+          if (key !== clientId) {
+            (presences as unknown as RemoteClient[]).forEach((p) => {
+              otherClients.push({ clientId: p.clientId, name: p.name, color: p.color });
             });
           }
-          break;
-      }
-    };
-
-    return () => es.close();
-  }, [session, onContentChange, onNoteChange, onStateSyncContents, onStateSyncNotes]);
-
-  const broadcastRaw = useCallback(async (event: object) => {
-    if (!session) return;
-    try {
-      await fetch(`/api/collab/rooms/${session.roomId}/events`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...event, clientId: session.clientId }),
+        });
+        setClients(otherClients);
+      })
+      .on('broadcast', { event: 'cursor_move' }, ({ payload }) => {
+        if (payload.clientId !== clientId) {
+          setCursors(prev => {
+            const m = new Map(prev);
+            m.set(payload.clientId, {
+              fileId: payload.fileId,
+              lineNumber: payload.lineNumber,
+              column: payload.column,
+              name: payload.name,
+              color: payload.color,
+            });
+            return m;
+          });
+        }
+      })
+      .on('broadcast', { event: 'content_change' }, ({ payload }) => {
+        if (payload.clientId !== clientId) {
+          onContentChange(payload.fileId, payload.content, payload.clientId);
+        }
+      })
+      .on('broadcast', { event: 'note_change' }, ({ payload }) => {
+        if (payload.clientId !== clientId && onNoteChange) {
+          onNoteChange(payload.fileId, payload.content, payload.clientId);
+        }
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({ clientId, name, color });
+          console.log('[Collab] Connected to room:', roomId);
+        }
       });
-    } catch { /* network error — ignore */ }
+
+    channelRef.current = channel;
+
+    return () => {
+      channel.unsubscribe();
+      channelRef.current = null;
+    };
+  }, [session, onContentChange, onNoteChange]);
+
+  const broadcastRaw = useCallback(async (event: string, payload: Record<string, unknown>) => {
+    if (!channelRef.current || !session) return;
+    channelRef.current.send({
+      type: 'broadcast',
+      event,
+      payload: { ...payload, clientId: session.clientId }
+    });
   }, [session]);
 
   const sendCursorMove = useCallback((fileId: string, lineNumber: number, column: number) => {
     if (!session) return;
-    if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current);
-    cursorTimerRef.current = setTimeout(() => {
-      broadcastRaw({ type: 'cursor_move', fileId, lineNumber, column, name: session.name, color: session.color });
-    }, 80);
+    broadcastRaw('cursor_move', { 
+      fileId, 
+      lineNumber, 
+      column, 
+      name: session.name, 
+      color: session.color 
+    });
   }, [broadcastRaw, session]);
 
-  // Throttle helper
   const sendThrottled = useCallback((fileId: string, content: string, type: 'content_change' | 'note_change') => {
     if (!session) return;
     const now = Date.now();
     const ref = type === 'content_change' ? lastContentSentRef : lastNoteSentRef;
     const pendingRef = type === 'content_change' ? contentPendingRef : notePendingRef;
     const last = ref.current[fileId] ?? 0;
-    const INTERVAL = 150;
+    const INTERVAL = 100; // Faster sync for WebSockets
 
     if (pendingRef.current[fileId]) {
       clearTimeout(pendingRef.current[fileId]);
@@ -140,12 +140,12 @@ export function useCollab({ session, onContentChange, onNoteChange, onStateSyncC
 
     if (now - last >= INTERVAL) {
       ref.current[fileId] = now;
-      broadcastRaw({ type, fileId, content, name: session.name });
+      broadcastRaw(type, { fileId, content, name: session.name });
     } else {
       const remaining = INTERVAL - (now - last);
       pendingRef.current[fileId] = setTimeout(() => {
         ref.current[fileId] = Date.now();
-        broadcastRaw({ type, fileId, content, name: session.name });
+        broadcastRaw(type, { fileId, content, name: session.name });
         delete pendingRef.current[fileId];
       }, remaining);
     }
@@ -159,20 +159,16 @@ export function useCollab({ session, onContentChange, onNoteChange, onStateSyncC
     sendThrottled(fileId, content, 'note_change');
   }, [sendThrottled]);
 
-  // Push current file contents to room immediately (for initial sync)
   const pushFileContents = useCallback((fileContents: Record<string, string>, fileNotes: Record<string, string>) => {
-    if (!session) return;
+    // Initial sync through broadcast is less efficient than state sync, 
+    // but works for now in this hybrid model.
     Object.entries(fileContents).forEach(([fileId, content]) => {
-      if (content) {
-        broadcastRaw({ type: 'content_change', fileId, content, name: session.name });
-      }
+      if (content) broadcastRaw('content_change', { fileId, content });
     });
     Object.entries(fileNotes).forEach(([fileId, content]) => {
-      if (content) {
-        broadcastRaw({ type: 'note_change', fileId, content, name: session.name });
-      }
+      if (content) broadcastRaw('note_change', { fileId, content });
     });
-  }, [broadcastRaw, session]);
+  }, [broadcastRaw]);
 
   return { clients, cursors, sendCursorMove, sendContentChange, sendNoteChange, pushFileContents };
 }

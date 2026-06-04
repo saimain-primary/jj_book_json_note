@@ -1,33 +1,31 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs/promises';
-import path from 'path';
+import { supabase } from '@/lib/supabase';
 
-const WORKSPACE_DIR = path.join(process.cwd(), 'workspace');
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const reqPath = searchParams.get('path');
-  
-  if (!reqPath) return NextResponse.json({ error: 'Path required' }, { status: 400 });
+  const id = searchParams.get('path');
 
-  const fullPath = path.join(WORKSPACE_DIR, reqPath);
-  if (!fullPath.startsWith(WORKSPACE_DIR)) return NextResponse.json({ error: 'Invalid path' }, { status: 400 });
+  if (!id) return NextResponse.json({ error: 'Path required' }, { status: 400 });
 
   try {
-    const content = await fs.readFile(fullPath, 'utf-8');
-    
-    let note: string | undefined;
-    try {
-      const dirPath = path.dirname(fullPath);
-      const fileName = path.basename(fullPath);
-      const notePath = path.join(dirPath, `.${fileName}.note`);
-      note = await fs.readFile(notePath, 'utf-8');
-    } catch {
-      // No note found
+    const { data: node, error } = await supabase
+      .from('nodes')
+      .select('content, note')
+      .eq('id', id)
+      .single();
+
+    if (error || !node) {
+      return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ content, note });
-  } catch {
-    return NextResponse.json({ error: 'File not found' }, { status: 404 });
+    return NextResponse.json({ 
+      content: node.content || '{\n  \n}', 
+      note: node.note || '' 
+    });
+  } catch (error) {
+    console.error('[Supabase] Fetch error:', error);
+    return NextResponse.json({ error: 'Fetch failed' }, { status: 500 });
   }
 }
