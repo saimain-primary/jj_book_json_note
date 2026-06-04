@@ -352,25 +352,24 @@ function Workspace() {
   }, [collab.cursors, activeFileId]);
 
   const handleSave = useCallback(async () => {
-    if (isReadOnlyMode || activeFileNode?.isReadonly || !activeFileId) return;
+    // Use refs to get latest values and avoid stale closures
+    const currentFileId = activeFileIdRef.current;
+    if (isReadOnlyMode || !currentFileId || !editorRef.current) return;
     
-    // Safety check: don't save if content is empty unless user explicitly cleared it
-    if (!activeContent && !fileContents[activeFileId]) {
-      console.warn('[Workspace] Aborting save: Content is empty and not yet loaded in state.');
-      return;
-    }
+    const contentToSaveRaw = editorRef.current.getValue();
+    const noteToSave = fileNotesRef.current[currentFileId] || "";
 
     setIsSaving(true);
-    let contentToSave = activeContent;
+    let contentToSave = contentToSaveRaw;
     try { 
       // Only minify if it's valid JSON, otherwise save as is
-      const parsed = JSON.parse(activeContent);
+      const parsed = JSON.parse(contentToSaveRaw);
       contentToSave = JSON.stringify(parsed); 
     } catch { /* ignore and save raw */ }
 
-    console.log(`[Workspace] Saving file: ${activeFileId}`, { contentLength: contentToSave.length, hasNote: !!activeNote });
+    console.log(`[Workspace] Saving file: ${currentFileId}`, { contentLength: contentToSave.length });
     
-    await saveFile(activeFileId, contentToSave, activeNote);
+    await saveFile(currentFileId, contentToSave, noteToSave);
     
     try {
       const key = `history:${activeFileId}`;
@@ -380,7 +379,7 @@ function Workspace() {
       localStorage.setItem(key, JSON.stringify(existing));
     } catch { /* ignore */ }
     setTimeout(() => setIsSaving(false), 1500);
-  }, [isReadOnlyMode, activeFileNode, activeFileId, activeContent, activeNote, saveFile]);
+  }, [isReadOnlyMode, saveFile]);
 
   useEffect(() => {
     if (!settings.autoSave || !activeFileId || activeFileNode?.isReadonly || isReadOnlyMode) return;
